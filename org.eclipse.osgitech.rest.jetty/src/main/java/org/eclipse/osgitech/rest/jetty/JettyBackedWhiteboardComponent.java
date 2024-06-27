@@ -21,6 +21,7 @@ import static org.eclipse.osgitech.rest.provider.JerseyConstants.WHITEBOARD_DEFA
 import static org.osgi.service.jakartars.runtime.JakartarsServiceRuntimeConstants.JAKARTA_RS_SERVICE_ENDPOINT;
 
 import java.net.URI;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -28,11 +29,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.crac.Context;
+import org.crac.Core;
+import org.crac.Resource;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.HandlerList;
 import org.eclipse.jetty.server.session.SessionHandler;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
+import org.eclipse.jetty.util.component.LifeCycle;
 import org.eclipse.osgitech.rest.annotations.ProvideRuntimeAdapter;
 import org.eclipse.osgitech.rest.helper.JakartarsHelper;
 import org.eclipse.osgitech.rest.helper.JerseyHelper;
@@ -62,6 +67,7 @@ public class JettyBackedWhiteboardComponent {
 	Logger logger = Logger.getLogger(JettyBackedWhiteboardComponent.class.getName());
 	
 	private JerseyServiceRuntime<WhiteboardServletContainer> serviceRuntime;
+	private Resource cracHandler;
 
 	public enum State {
 		INIT, STARTED, STOPPED, EXCEPTION
@@ -93,6 +99,24 @@ public class JettyBackedWhiteboardComponent {
 		
 		
 		serviceRuntime.start(getServiceRuntimeProperties(properties));
+
+		cracHandler = new Resource() {
+            @Override
+            public void beforeCheckpoint(Context<? extends Resource> context) {
+            	if (jettyServer != null && !jettyServer.isStopped()) {
+            		// Stop the connectors only and keep the expensive application running
+            		Arrays.asList(jettyServer.getConnectors()).forEach(c -> LifeCycle.stop(c));
+            	}
+            }
+
+            @Override
+            public void afterRestore(Context<? extends Resource> context) {
+            	if (jettyServer != null && !jettyServer.isStopped()) {
+            		Arrays.asList(jettyServer.getConnectors()).forEach(c -> LifeCycle.start(c));
+            	}
+            }
+        };
+        Core.getGlobalContext().register(cracHandler);
 	}
 
 	private Map<String, Object> getServiceRuntimeProperties(Map<String, Object> properties) {
